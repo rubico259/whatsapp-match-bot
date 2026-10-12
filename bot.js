@@ -5,7 +5,7 @@ const axios = require("axios");
 const app = express();
 app.use(bodyParser.json());
 
-// שני המספרים שמורשים להפעיל את הבוט
+// רק אתה והשדכן מורשים להפעיל את הבוט
 const allowedUsers = [
   "972544502160", // אתה
   "972526230014"  // השדכן
@@ -14,16 +14,25 @@ const allowedUsers = [
 app.post("/webhook", async (req, res) => {
   const message = req.body;
 
-  // אם השולח לא ברשימת המורשים — מתעלמים
+  // אם השולח לא מורשה — מתעלמים
   if (!allowedUsers.includes(message.from)) {
     return res.sendStatus(200);
   }
 
-  // כאן מתחיל הטיפול בהודעות שלכם בלבד
   const text = message.body;
 
-  // תגובה לדוגמה
-  await sendMessage(message.from, `קיבלתי: ${text}`);
+  // אם אתה שולח הודעה שמכילה "עדכן את השדכן"
+  if (text.includes("עדכן את השדכן")) {
+
+    // שולח לשדכן את העדכון
+    await sendMessage(
+      "972526230014",
+      `ראובן עדכן: ${text.replace("עדכן את השדכן", "").trim()}`
+    );
+
+    // שולח לך אישור
+    await sendMessage(message.from, "העדכון נשלח לשדכן ✔️");
+  }
 
   res.sendStatus(200);
 });
