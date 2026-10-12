@@ -35,21 +35,27 @@ async function startBot() {
     qrTimeout: 0
   });
 
-  // הצגת QR כטקסט בלוגים של Render
+  // QR דרך האירוע הראשי
   sock.ev.on("qr", qr => {
     console.log("SCAN THIS QR:\n" + qr);
   });
 
-  sock.ev.on("creds.update", saveCreds);
-
+  // QR גם דרך connection.update (חשוב ל‑Render!)
   sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      console.log("SCAN THIS QR:\n" + qr);
+    }
+
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       if (shouldReconnect) startBot();
     }
   });
+
+  sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
