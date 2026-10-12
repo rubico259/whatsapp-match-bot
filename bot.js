@@ -1,47 +1,54 @@
 const express = require("express");
-const axios = require("axios");
 const bodyParser = require("body-parser");
+const axios = require("axios");
 
 const app = express();
 app.use(bodyParser.json());
 
-// פרטי החשבון שלך ב‑Ultramsg
-const INSTANCE_ID = "instance194153";
-const TOKEN = "jyp7m647msdfns44";
+// שני המספרים שמורשים להפעיל את הבוט
+const allowedUsers = [
+  "972544502160", // אתה
+  "972526230014"  // השדכן
+];
 
-// פונקציה לשליחת הודעה
-async function sendMessage(to, message) {
-  try {
-    const url = `https://api.ultramsg.com/${INSTANCE_ID}/messages/chat`;
-    const data = {
-      token: TOKEN,
-      to: to,
-      body: message
-    };
-
-    const res = await axios.post(url, data);
-    console.log("Message sent:", res.data);
-  } catch (err) {
-    console.error("Error sending message:", err.response?.data || err.message);
-  }
-}
-
-// Webhook לקבלת הודעות נכנסות
 app.post("/webhook", async (req, res) => {
-  const data = req.body;
+  const message = req.body;
 
-  console.log("Incoming message:", data);
+  // אם השולח לא ברשימת המורשים — מתעלמים
+  if (!allowedUsers.includes(message.from)) {
+    return res.sendStatus(200);
+  }
 
-  const from = data.from;     // מספר השולח
-  const message = data.body;  // תוכן ההודעה
+  // כאן מתחיל הטיפול בהודעות שלכם בלבד
+  const text = message.body;
 
-  // תגובה אוטומטית
-  await sendMessage(from, "קיבלתי את ההודעה שלך 🤖");
+  // תגובה לדוגמה
+  await sendMessage(message.from, `קיבלתי: ${text}`);
 
   res.sendStatus(200);
 });
 
-// הפעלת השרת
+// פונקציה ששולחת הודעה דרך Ultramsg
+async function sendMessage(to, text) {
+  try {
+    await axios.post(
+      "https://api.ultramsg.com/instance194153/messages/chat",
+      {
+        to,
+        body: text
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "token": "jyp7m647msdfns44"
+        }
+      }
+    );
+  } catch (err) {
+    console.error("Error sending message:", err.response?.data || err);
+  }
+}
+
 app.listen(3000, () => {
   console.log("Bot is running on port 3000");
 });
