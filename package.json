@@ -1,0 +1,12 @@
+{
+  "name": "match-whatsapp-bot",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "better-sqlite3": "^9.0.0"
+  }
+}
