@@ -4,27 +4,26 @@ const {
   DisconnectReason
 } = require("@whiskeysockets/baileys");
 
-const Database = require("better-sqlite3");
+const sqlite3 = require("sqlite3").verbose();
 
-// מספר השדכן (בפורמט וואטסאפ JID)
+// מספר השדכן
 const SHADCHAN_JID = "972526230014@s.whatsapp.net";
 
 // מסד נתונים
-const db = new Database("database.db");
+const db = new sqlite3.Database("database.db");
 
-// יצירת טבלאות אם לא קיימות
-db.exec(`
+// יצירת טבלה אם לא קיימת
+db.run(`
   CREATE TABLE IF NOT EXISTS matches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     wa_number TEXT NOT NULL,
     name TEXT,
     last_status TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+  )
 `);
 
-// מצב שיחה זמני בזיכרון
-const conversationState = {}; // key: wa_number, value: { stage: 'ask_name' | 'ask_status', name: string }
+const conversationState = {};
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth");
@@ -41,9 +40,7 @@ async function startBot() {
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      if (shouldReconnect) {
-        startBot();
-      }
+      if (shouldReconnect) startBot();
     }
   });
 
@@ -52,7 +49,7 @@ async function startBot() {
       if (!msg.message || msg.key.fromMe) continue;
 
       const senderJid = msg.key.remoteJid;
-      const waNumber = senderJid.split("@")[0]; // למשל 9725XXXXXXX
+      const waNumber = senderJid.split("@")[0];
 
       const text =
         msg.message.conversation ||
@@ -61,32 +58,36 @@ async function startBot() {
 
       if (!text) return;
 
-      console.log("Message from", waNumber, ":", text);
-
       await handleMessage(sock, waNumber, senderJid, text.trim());
     }
   });
 }
 
-function getMatchByNumber(waNumber) {
-  const stmt = db.prepare("SELECT * FROM matches WHERE wa_number = ?");
-  return stmt.get(waNumber);
+function getMatchByNumber(waNumber, cb) {
+  db.get("SELECT * FROM matches WHERE wa_number = ?", [waNumber], cb);
 }
 
 function createOrUpdateName(waNumber, name) {
-  const existing = getMatchByNumber(waNumber);
-  if (existing) {
-    const stmt = db.prepare("UPDATE matches SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?");
-    stmt.run(name, waNumber);
-  } else {
-    const stmt = db.prepare("INSERT INTO matches (wa_number, name) VALUES (?, ?)");
-    stmt.run(waNumber, name);
-  }
+  getMatchByNumber(waNumber, (err, row) => {
+    if (row) {
+      db.run(
+        "UPDATE matches SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?",
+        [name, waNumber]
+      );
+    } else {
+      db.run(
+        "INSERT INTO matches (wa_number, name) VALUES (?, ?)",
+        [waNumber, name]
+      );
+    }
+  });
 }
 
 function updateStatus(waNumber, status) {
-  const stmt = db.prepare("UPDATE matches SET last_status = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?");
-  stmt.run(status, waNumber);
+  db.run(
+    "UPDATE matches SET last_status = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?",
+    [status, waNumber]
+  );
 }
 
 async function sendMessage(sock, jid, text) {
@@ -94,57 +95,44 @@ async function sendMessage(sock, jid, text) {
 }
 
 async function handleMessage(sock, waNumber, senderJid, text) {
-  const match = getMatchByNumber(waNumber);
-  const state = conversationState[waNumber] || {};
+  getMatchByNumber(waNumber, async (err, match) => {
+    const state = conversationState[waNumber] || {};
 
-  // אם אין שם עדיין – מתחילים בשיחה
-  if (!match || !match.name) {
-    if (!state.stage) {
-      // שלב ראשון: המדוייט כתב משהו – נתחיל ב"היי! איך קוראים לך?"
-      conversationState[waNumber] = { stage: "ask_name" };
-      await sendMessage(sock, senderJid, "היי! איך קוראים לך?");
-      return;
-    }
+    if (!match || !match.name) {
+      if (!state.stage) {
+        conversationState[waNumber] = { stage: "ask_name" };
+        return sendMessage(sock, senderJid, "היי! איך קוראים לך?");
+      }
 
-    if (state.stage === "ask_name") {
-      const name = text;
-      createOrUpdateName(waNumber, name);
-      conversationState[waNumber] = { stage: "ask_status", name };
-      await sendMessage(sock, senderJid, `נעים מאוד ${name}! מה הסטטוס שלך?`);
-      return;
-    }
+      if (state.stage === "ask_name") {
+        const name = text;
+        createOrUpdateName(waNumber, name);
+        conversationState[waNumber] = { stage: "ask_status", name };
+        return sendMessage(sock, senderJid, `נעים מאוד ${name}! מה הסטטוס שלך?`);
+      }
 
-    if (state.stage === "ask_status") {
-      const name = state.name;
+      if (state.stage === "ask_status") {
+        const name = state.name;
+        const status = text;
+
+        updateStatus(waNumber, status);
+
+        await sendMessage(sock, SHADCHAN_JID, `המדוייט ${name} עדכן סטטוס:\n${status}`);
+        await sendMessage(sock, senderJid, `תודה ${name}! עדכנתי את השדכן.`);
+
+        delete conversationState[waNumber];
+        return;
+      }
+    } else {
+      const name = match.name;
       const status = text;
 
       updateStatus(waNumber, status);
 
-      // הודעה לשדכן
-      const shadchanText = `המדוייט ${name} עדכן סטטוס:\n${status}`;
-      await sendMessage(sock, SHADCHAN_JID, shadchanText);
-
-      // תשובה למדויט
+      await sendMessage(sock, SHADCHAN_JID, `המדוייט ${name} עדכן סטטוס:\n${status}`);
       await sendMessage(sock, senderJid, `תודה ${name}! עדכנתי את השדכן.`);
-
-      // מנקים מצב שיחה
-      delete conversationState[waNumber];
-      return;
     }
-  } else {
-    // יש כבר שם – נניח שכל הודעה חדשה היא סטטוס
-    const name = match.name;
-    const status = text;
-
-    updateStatus(waNumber, status);
-
-    const shadchanText = `המדוייט ${name} עדכן סטטוס:\n${status}`;
-    await sendMessage(sock, SHADCHAN_JID, shadchanText);
-
-    await sendMessage(sock, senderJid, `תודה ${name}! עדכנתי את השדכן.`);
-  }
+  });
 }
 
-startBot().catch((err) => {
-  console.error("Bot error:", err);
-});
+startBot().catch(console.error);
