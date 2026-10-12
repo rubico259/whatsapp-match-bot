@@ -32,7 +32,8 @@ async function startBot() {
     auth: state,
     printQRInTerminal: true,
     emitQR: true,
-    qrTimeout: 0
+    qrTimeout: 0,
+    browser: ["Ubuntu", "Chrome", "22.04.4"]   // ← חשוב מאוד ל‑Render
   });
 
   // QR דרך האירוע הראשי
@@ -40,7 +41,7 @@ async function startBot() {
     console.log("SCAN THIS QR:\n" + qr);
   });
 
-  // QR גם דרך connection.update (חשוב ל‑Render!)
+  // QR גם דרך connection.update
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect, qr } = update;
 
