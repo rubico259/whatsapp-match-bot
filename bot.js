@@ -74,4 +74,72 @@ function getMatchByNumber(waNumber, cb) {
   db.get("SELECT * FROM matches WHERE wa_number = ?", [waNumber], cb);
 }
 
-function create
+function createOrUpdateName(waNumber, name) {
+  getMatchByNumber(waNumber, (err, row) => {
+    if (row) {
+      db.run(
+        "UPDATE matches SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?",
+        [name, waNumber]
+      );
+    } else {
+      db.run(
+        "INSERT INTO matches (wa_number, name) VALUES (?, ?)",
+        [waNumber, name]
+      );
+    }
+  });
+}
+
+function updateStatus(waNumber, status) {
+  db.run(
+    "UPDATE matches SET last_status = ?, updated_at = CURRENT_TIMESTAMP WHERE wa_number = ?",
+    [status, waNumber]
+  );
+}
+
+async function sendMessage(sock, jid, text) {
+  await sock.sendMessage(jid, { text });
+}
+
+async function handleMessage(sock, waNumber, senderJid, text) {
+  getMatchByNumber(waNumber, async (err, match) => {
+    const state = conversationState[waNumber] || {};
+
+    if (!match || !match.name) {
+      if (!state.stage) {
+        conversationState[waNumber] = { stage: "ask_name" };
+        return sendMessage(sock, senderJid, "היי! איך קוראים לך?");
+      }
+
+      if (state.stage === "ask_name") {
+        const name = text;
+        createOrUpdateName(waNumber, name);
+        conversationState[waNumber] = { stage: "ask_status", name };
+        return sendMessage(sock, senderJid, `נעים מאוד ${name}! מה הסטטוס שלך?`);
+      }
+
+      if (state.stage === "ask_status") {
+        const name = state.name;
+        const status = text;
+
+        updateStatus(waNumber, status);
+
+        await sendMessage(sock, SHADCHAN_JID, `המדוייט ${name} עדכן סטטוס:\n${status}`);
+        await sendMessage(sock, senderJid, `תודה ${name}! עדכנתי את השדכן.`);
+
+        delete conversationState[waNumber];
+        return;
+      }
+    } else {
+      const name = match.name;
+      const status = text;
+
+      updateStatus(waNumber, status);
+
+      await sendMessage(sock, SHADCHAN_JID, `המדוייט ${name} עדכן סטטוס:\n${status}`);
+      await sendMessage(sock, senderJid, `תודה ${name}! עדכנתי את השדכן.`);
+    }
+  });
+}
+
+startBot().catch(console.error);
